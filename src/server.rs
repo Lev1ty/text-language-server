@@ -1,5 +1,5 @@
 use scc::HashMap;
-use serde_json::{Value, from_value, json, to_value};
+use serde_json::{Value, from_value, json, to_string, to_value};
 use std::ops::Deref;
 use tower_lsp::{
   Client, LanguageServer,
@@ -85,20 +85,6 @@ impl LanguageServer for Server {
         })
       })
       .await;
-    self
-      .client
-      .log_message(
-        MessageType::LOG,
-        self
-          .text
-          .get_async(&params.text_document.uri)
-          .await
-          .as_deref()
-          .map(Deref::deref)
-          .unwrap_or_default()
-          .to_string(),
-      )
-      .await;
   }
 
   #[tracing::instrument]
@@ -148,19 +134,25 @@ impl LanguageServer for Server {
           .await
           .ok_or_else(|| Error::internal_error())?;
         if let Some(new_text) = unescape(&content) {
+          let range = content.deref().deref().range_full();
           self
+            .text
+            .update_async(&uri, |_, text| text.replace_range(.., &new_text))
+            .await;
+          let response = self
             .client
             .apply_edit(WorkspaceEdit {
               document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
                 text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
-                edits: vec![OneOf::Left(TextEdit {
-                  range: content.deref().deref().range_full(),
-                  new_text,
-                })],
+                edits: vec![OneOf::Left(TextEdit { range, new_text })],
               }])),
               ..Default::default()
             })
             .await?;
+          self
+            .client
+            .log_message(MessageType::LOG, to_string(&response).unwrap_or_default())
+            .await;
         }
         Ok(Some(json!({"success": true})))
       }
