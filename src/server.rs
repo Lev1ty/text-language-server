@@ -1,4 +1,4 @@
-use serde_json::{Value, from_value, json, to_value};
+use serde_json::{Value, from_value, json, to_string, to_value};
 use tokio::fs;
 use tower_lsp::{
   Client, LanguageServer,
@@ -6,7 +6,7 @@ use tower_lsp::{
   lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionResponse, Command, DocumentChanges, ExecuteCommandOptions, ExecuteCommandParams,
-    InitializeParams, InitializeResult, InitializedParams, OneOf,
+    InitializeParams, InitializeResult, InitializedParams, MessageType, OneOf,
     OptionalVersionedTextDocumentIdentifier, Range, ServerCapabilities, TextDocumentEdit, TextEdit,
     Url, WorkspaceEdit,
   },
@@ -45,6 +45,10 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(ret, err)]
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+    self
+      .client
+      .log_message(MessageType::LOG, to_string(&params).unwrap_or_default())
+      .await;
     Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
       title: CommandKindTitle(CommandKind::UnescapeSource).to_string(),
       kind: Some(CodeActionKind::SOURCE),
@@ -69,6 +73,10 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(err)]
   async fn execute_command(&self, mut params: ExecuteCommandParams) -> Result<Option<Value>> {
+    self
+      .client
+      .log_message(MessageType::LOG, to_string(&params).unwrap_or_default())
+      .await;
     match params.command.parse::<CommandKind>() {
       Ok(CommandKind::UnescapeSource) => {
         let Some(TextDocumentRange { uri, range }) = params
