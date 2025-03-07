@@ -1,21 +1,28 @@
-use serde_json::{Value, from_value, json, to_string, to_value};
-use tokio::fs;
+use scc::HashMap;
+use serde_json::{Value, from_value, json, to_value};
+use std::ops::Deref;
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
   lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
-    CodeActionResponse, Command, DocumentChanges, ExecuteCommandOptions, ExecuteCommandParams,
+    CodeActionResponse, Command, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentChanges, ExecuteCommandOptions, ExecuteCommandParams,
     InitializeParams, InitializeResult, InitializedParams, MessageType, OneOf,
-    OptionalVersionedTextDocumentIdentifier, Position, Range, ServerCapabilities, TextDocumentEdit,
+    OptionalVersionedTextDocumentIdentifier, PositionEncodingKind, ServerCapabilities,
+    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
     TextEdit, Url, WorkspaceEdit,
   },
 };
 use unescape::unescape;
 
+use crate::r#trait::Text;
+
 #[derive(Debug, derive_builder::Builder)]
 pub struct Server {
   client: Client,
+  #[builder(default)]
+  text: HashMap<Url, String>,
 }
 
 #[tower_lsp::async_trait]
@@ -25,6 +32,14 @@ impl LanguageServer for Server {
     Ok(InitializeResult {
       server_info: None,
       capabilities: ServerCapabilities {
+        position_encoding: Some(PositionEncodingKind::UTF8),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+          TextDocumentSyncOptions {
+            open_close: Some(true),
+            change: Some(TextDocumentSyncKind::INCREMENTAL),
+            ..Default::default()
+          },
+        )),
         code_action_provider: Some(Into::into(CodeActionOptions {
           code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
           ..Default::default()
@@ -41,6 +56,54 @@ impl LanguageServer for Server {
   #[tracing::instrument]
   async fn initialized(&self, _: InitializedParams) {
     tracing::info!("server initialized!");
+  }
+
+  #[tracing::instrument(ret)]
+  async fn shutdown(&self) -> Result<()> {
+    Ok(())
+  }
+
+  #[tracing::instrument]
+  async fn did_open(&self, params: DidOpenTextDocumentParams) {
+    self
+      .text
+      .upsert_async(params.text_document.uri, params.text_document.text)
+      .await;
+  }
+
+  #[tracing::instrument]
+  async fn did_change(&self, params: DidChangeTextDocumentParams) {
+    self
+      .text
+      .update_async(&params.text_document.uri, |_, text| {
+        params.content_changes.into_iter().for_each(|change| {
+          if let Some(range) = change.range {
+            text.replace_range(text.deref().deref().range(range), &change.text);
+          } else {
+            text.replace_range(.., &change.text);
+          }
+        })
+      })
+      .await;
+    self
+      .client
+      .log_message(
+        MessageType::LOG,
+        self
+          .text
+          .get_async(&params.text_document.uri)
+          .await
+          .as_deref()
+          .map(Deref::deref)
+          .unwrap_or_default()
+          .to_string(),
+      )
+      .await;
+  }
+
+  #[tracing::instrument]
+  async fn did_close(&self, params: DidCloseTextDocumentParams) {
+    self.text.remove_async(&params.text_document.uri).await;
   }
 
   #[tracing::instrument(ret, err)]
@@ -79,31 +142,21 @@ impl LanguageServer for Server {
         else {
           return Err(Error::invalid_params("Missing URI argument".to_string()));
         };
-        // TODO: Implement stateful server and track changes via did_open and did_change notifications.
-        // This current implementation has two risks:
-        // 1. The file on disk may be stale.
-        // 2. This server binary may not have permission to read the file.
-        let path = uri.to_file_path().map_err(|_| {
-          Error::invalid_params(format!("Could not convert URI to file path: {}", uri))
-        })?;
-        let content = fs::read_to_string(path)
+        let content = self
+          .text
+          .get_async(&uri)
           .await
-          .map_err(|err| Error::invalid_params(format!("Failed to read file content: {err:?}")))?;
-        let range = Range {
-          start: Position::new(0, 0),
-          end: Position::new(content.lines().count() as u32, 0),
-        };
-        self
-          .client
-          .log_message(MessageType::LOG, to_string(&range).unwrap_or_default())
-          .await;
+          .ok_or_else(|| Error::internal_error())?;
         if let Some(new_text) = unescape(&content) {
           self
             .client
             .apply_edit(WorkspaceEdit {
               document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
                 text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
-                edits: vec![OneOf::Left(TextEdit { range, new_text })],
+                edits: vec![OneOf::Left(TextEdit {
+                  range: content.deref().deref().range_full(),
+                  new_text,
+                })],
               }])),
               ..Default::default()
             })
@@ -113,11 +166,6 @@ impl LanguageServer for Server {
       }
       Err(err) => Err(Error::invalid_params(format!("Invalid command: {err:?}"))),
     }
-  }
-
-  #[tracing::instrument(ret)]
-  async fn shutdown(&self) -> Result<()> {
-    Ok(())
   }
 }
 
