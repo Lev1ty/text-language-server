@@ -826,6 +826,7 @@ version = "0.0.2"
 dependencies = [
  "derive_builder",
  "derive_more",
+ "serde",
  "serde_json",
  "strum",
  "thiserror",

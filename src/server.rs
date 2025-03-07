@@ -1,13 +1,17 @@
 use serde_json::{Value, from_value, json, to_value};
+use tokio::fs;
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
   lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
-    CodeActionResponse, Command, ExecuteCommandOptions, ExecuteCommandParams, InitializeParams,
-    InitializeResult, InitializedParams, MessageType, ServerCapabilities, Url,
+    CodeActionResponse, Command, DocumentChanges, ExecuteCommandOptions, ExecuteCommandParams,
+    InitializeParams, InitializeResult, InitializedParams, OneOf,
+    OptionalVersionedTextDocumentIdentifier, Range, ServerCapabilities, TextDocumentEdit, TextEdit,
+    Url, WorkspaceEdit,
   },
 };
+use unescape::unescape;
 
 #[derive(Debug, derive_builder::Builder)]
 pub struct Server {
@@ -42,16 +46,22 @@ impl LanguageServer for Server {
   #[tracing::instrument(ret, err)]
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
     Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
-      title: CommandKind::UnescapeSource.to_string(),
+      title: CommandKindTitle(CommandKind::UnescapeSource).to_string(),
       kind: Some(CodeActionKind::SOURCE),
       command: Some(Command {
         title: CommandKindTitle(CommandKind::UnescapeSource).to_string(),
         command: CommandKind::UnescapeSource.to_string(),
-        arguments: Some(vec![to_value(params.text_document.uri).map_err(|err| {
-          Error::invalid_params(format!(
-            "Failed to convert text document URI to JSON value: {err:?}"
-          ))
-        })?]),
+        arguments: Some(vec![
+          to_value(TextDocumentRange {
+            uri: params.text_document.uri,
+            range: params.range,
+          })
+          .map_err(|err| {
+            Error::invalid_params(format!(
+              "Failed to convert text document range to JSON value: {err:?}"
+            ))
+          })?,
+        ]),
       }),
       ..Default::default()
     })]))
@@ -61,24 +71,42 @@ impl LanguageServer for Server {
   async fn execute_command(&self, mut params: ExecuteCommandParams) -> Result<Option<Value>> {
     match params.command.parse::<CommandKind>() {
       Ok(CommandKind::UnescapeSource) => {
-        let Some(uri) = params
+        let Some(TextDocumentRange { uri, range }) = params
           .arguments
           .first_mut()
           .map(std::mem::take)
-          .map(from_value::<Url>)
+          .map(from_value)
           .transpose()
           .map_err(|err| {
             Error::invalid_params(format!(
-              "Failed to convert text document URI to JSON value: {err:?}"
+              "Failed to convert text document range to JSON value: {err:?}"
             ))
           })?
         else {
           return Err(Error::invalid_params("Missing URI argument".to_string()));
         };
+        // TODO: Implement stateful server and track changes via did_open and did_change notifications.
+        // This current implementation has two risks:
+        // 1. The file on disk may be stale.
+        // 2. This server binary may not have permission to read the file.
+        let path = uri.to_file_path().map_err(|_| {
+          Error::invalid_params(format!("Could not convert URI to file path: {}", uri))
+        })?;
+        let content = fs::read_to_string(path)
+          .await
+          .map_err(|err| Error::invalid_params(format!("Failed to read file content: {err:?}")))?;
+        let new_text =
+          unescape(&content).ok_or_else(|| Error::invalid_params("Failed to unescape content"))?;
         self
           .client
-          .log_message(MessageType::INFO, format!("Received URI: {uri}"))
-          .await;
+          .apply_edit(WorkspaceEdit {
+            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+              text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
+              edits: vec![OneOf::Left(TextEdit { range, new_text })],
+            }])),
+            ..Default::default()
+          })
+          .await?;
         Ok(Some(json!({"success": true})))
       }
       Err(err) => Err(Error::invalid_params(format!("Invalid command: {err:?}"))),
@@ -105,4 +133,10 @@ impl std::fmt::Display for CommandKindTitle {
       CommandKind::UnescapeSource => write!(f, "Unescape source"),
     }
   }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TextDocumentRange {
+  uri: Url,
+  range: Range,
 }
