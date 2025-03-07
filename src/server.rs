@@ -97,18 +97,18 @@ impl LanguageServer for Server {
           .client
           .log_message(MessageType::LOG, to_string(&range).unwrap_or_default())
           .await;
-        let new_text =
-          unescape(&content).ok_or_else(|| Error::invalid_params("Failed to unescape content"))?;
-        self
-          .client
-          .apply_edit(WorkspaceEdit {
-            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
-              text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
-              edits: vec![OneOf::Left(TextEdit { range, new_text })],
-            }])),
-            ..Default::default()
-          })
-          .await?;
+        if let Some(new_text) = unescape(&content) {
+          self
+            .client
+            .apply_edit(WorkspaceEdit {
+              document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
+                edits: vec![OneOf::Left(TextEdit { range, new_text })],
+              }])),
+              ..Default::default()
+            })
+            .await?;
+        }
         Ok(Some(json!({"success": true})))
       }
       Err(err) => Err(Error::invalid_params(format!("Invalid command: {err:?}"))),
