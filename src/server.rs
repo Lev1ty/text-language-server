@@ -81,6 +81,29 @@ impl LanguageServer for Server {
   #[tracing::instrument]
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
     self
+      .client
+      .log_message(
+        MessageType::LOG,
+        format!(
+          "before: {}",
+          self
+            .text
+            .get_async(&params.text_document.uri)
+            .await
+            .as_deref()
+            .map(Deref::deref)
+            .unwrap_or_default()
+        ),
+      )
+      .await;
+    self
+      .client
+      .log_message(
+        MessageType::LOG,
+        to_string(&params.content_changes).unwrap_or_default(),
+      )
+      .await;
+    self
       .text
       .update_async(&params.text_document.uri, |_, text| {
         params.content_changes.into_iter().for_each(|change| {
@@ -96,13 +119,16 @@ impl LanguageServer for Server {
       .client
       .log_message(
         MessageType::LOG,
-        self
-          .text
-          .get_async(&params.text_document.uri)
-          .await
-          .as_deref()
-          .map(Deref::deref)
-          .unwrap_or_default(),
+        format!(
+          "after: {}",
+          self
+            .text
+            .get_async(&params.text_document.uri)
+            .await
+            .as_deref()
+            .map(Deref::deref)
+            .unwrap_or_default()
+        ),
       )
       .await;
   }
