@@ -1,5 +1,5 @@
 use scc::HashMap;
-use serde_json::{Value, from_value, json, to_string, to_value};
+use serde_json::{Value, from_value, to_string, to_value};
 use std::ops::Deref;
 use tower_lsp::{
   Client, LanguageServer,
@@ -87,7 +87,7 @@ impl LanguageServer for Server {
           if let Some(range) = change.range {
             text.replace_range(text.deref().deref().range(range), &change.text);
           } else {
-            text.replace_range(.., &change.text);
+            *text = change.text;
           }
         })
       })
