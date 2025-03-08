@@ -1,17 +1,16 @@
 use scc::HashMap;
 use serde_json::{Value, from_value, to_string, to_value};
-use std::ops::Deref;
+use std::{collections, ops::Deref};
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
   lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionResponse, Command, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentChanges, ExecuteCommandOptions, ExecuteCommandParams,
-    InitializeParams, InitializeResult, InitializedParams, MessageType, OneOf,
-    OptionalVersionedTextDocumentIdentifier, PositionEncodingKind, ServerCapabilities,
-    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TextEdit, Url, WorkspaceEdit,
+    DidOpenTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, InitializeParams,
+    InitializeResult, InitializedParams, MessageType, PositionEncodingKind, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, TextEdit, Url,
+    WorkspaceEdit,
   },
 };
 use unescape::unescape;
@@ -179,13 +178,17 @@ impl LanguageServer for Server {
           .get_async(&uri)
           .await
           .ok_or_else(|| Error::internal_error())?;
-        if let Some(new_text) = unescape(&content) {
+        if let Some(new_text) = unescape(&content)
+          .as_deref()
+          .map(str::trim_end)
+          .map(ToString::to_string)
+        {
           let range = content.deref().deref().range_full();
           let request = WorkspaceEdit {
-            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
-              text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
-              edits: vec![OneOf::Left(TextEdit { range, new_text })],
-            }])),
+            changes: Some(collections::HashMap::from_iter([(
+              uri,
+              vec![TextEdit { range, new_text }],
+            )])),
             ..Default::default()
           };
           self
