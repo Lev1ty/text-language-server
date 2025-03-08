@@ -7,6 +7,7 @@ use tracing_appender::{non_blocking, rolling};
 async fn main() -> Result<(), Error> {
   let (writer, _guard) = non_blocking(rolling::never("/tmp", "text-language-server.log"));
   tracing_subscriber::fmt()
+    .with_ansi(false)
     .with_max_level(tracing::Level::DEBUG)
     .with_writer(writer)
     .try_init()

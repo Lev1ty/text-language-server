@@ -1,6 +1,7 @@
 use scc::HashMap;
-use serde_json::{Value, from_value, to_string, to_value};
+use serde_json::{Value, from_value, to_value};
 use std::{collections, ops::Deref, process};
+use tap::prelude::*;
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
@@ -13,6 +14,7 @@ use tower_lsp::{
     WorkspaceEdit,
   },
 };
+use tracing::{debug, error};
 use unescape::unescape;
 
 use crate::r#trait::Text;
@@ -52,13 +54,13 @@ impl LanguageServer for Server {
     })
   }
 
-  #[tracing::instrument]
+  #[tracing::instrument(ret)]
   async fn initialized(&self, _: InitializedParams) {
     self
       .client
       .log_message(
         MessageType::INFO,
-        format!("server initialized! PID: {}", process::id()),
+        format!("Server initialized! PID: {}", process::id()),
       )
       .await;
   }
@@ -67,12 +69,12 @@ impl LanguageServer for Server {
   async fn shutdown(&self) -> Result<()> {
     self
       .client
-      .log_message(MessageType::INFO, "server shutdown!")
+      .log_message(MessageType::INFO, "Server shutdown!")
       .await;
     Ok(())
   }
 
-  #[tracing::instrument]
+  #[tracing::instrument(ret)]
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
     self
       .text
@@ -80,31 +82,8 @@ impl LanguageServer for Server {
       .await;
   }
 
-  #[tracing::instrument]
+  #[tracing::instrument(ret)]
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
-    self
-      .client
-      .log_message(
-        MessageType::LOG,
-        format!(
-          "before: {}",
-          self
-            .text
-            .get_async(&params.text_document.uri)
-            .await
-            .as_deref()
-            .map(Deref::deref)
-            .unwrap_or_default()
-        ),
-      )
-      .await;
-    self
-      .client
-      .log_message(
-        MessageType::LOG,
-        to_string(&params.content_changes).unwrap_or_default(),
-      )
-      .await;
     self
       .text
       .update_async(&params.text_document.uri, |_, text| {
@@ -117,25 +96,9 @@ impl LanguageServer for Server {
         })
       })
       .await;
-    self
-      .client
-      .log_message(
-        MessageType::LOG,
-        format!(
-          "after: {}",
-          self
-            .text
-            .get_async(&params.text_document.uri)
-            .await
-            .as_deref()
-            .map(Deref::deref)
-            .unwrap_or_default()
-        ),
-      )
-      .await;
   }
 
-  #[tracing::instrument]
+  #[tracing::instrument(ret)]
   async fn did_close(&self, params: DidCloseTextDocumentParams) {
     self.text.remove_async(&params.text_document.uri).await;
   }
@@ -158,7 +121,7 @@ impl LanguageServer for Server {
     })]))
   }
 
-  #[tracing::instrument(err)]
+  #[tracing::instrument(ret, err)]
   async fn execute_command(&self, mut params: ExecuteCommandParams) -> Result<Option<Value>> {
     match params.command.parse::<CommandKind>() {
       Ok(CommandKind::UnescapeSource) => {
@@ -187,28 +150,17 @@ impl LanguageServer for Server {
           .map(ToString::to_string)
         {
           let range = content.deref().deref().range_full();
-          let request = WorkspaceEdit {
+          WorkspaceEdit {
             changes: Some(collections::HashMap::from_iter([(
               uri,
               vec![TextEdit { range, new_text }],
             )])),
             ..Default::default()
-          };
-          self
-            .client
-            .log_message(
-              MessageType::LOG,
-              format!("request: {}", to_string(&request).unwrap_or_default()),
-            )
-            .await;
-          let result = self.client.apply_edit(request).await;
-          self
-            .client
-            .log_message(
-              MessageType::LOG,
-              format!("result: {}", to_string(&result).unwrap_or_default()),
-            )
-            .await;
+          }
+          .tap(|request| debug!(?request))
+          .pipe(|request| self.client.apply_edit(request))
+          .await
+          .inspect_err(|err| error!(?err))?;
         }
         Ok(None)
       }
