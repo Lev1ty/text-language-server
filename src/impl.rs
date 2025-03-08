@@ -21,10 +21,12 @@ impl Text for &str {
   fn range_full(&self) -> lsp_types::Range {
     lsp_types::Range {
       start: Position::new(0, 0),
-      end: Position::new(
-        self.lines().count().saturating_sub(1) as u32,
-        self.chars().rev().take_while(|c| c != &'\n').count() as u32,
-      ),
+      end: self
+        .lines()
+        .enumerate()
+        .last()
+        .map(|(line, s)| Position::new(line as u32, s.chars().count() as u32))
+        .unwrap_or(Position::new(0, 0)),
     }
   }
 }
