@@ -55,11 +55,18 @@ impl LanguageServer for Server {
 
   #[tracing::instrument]
   async fn initialized(&self, _: InitializedParams) {
-    tracing::info!("server initialized!");
+    self
+      .client
+      .log_message(MessageType::INFO, "server initialized!")
+      .await;
   }
 
   #[tracing::instrument(ret)]
   async fn shutdown(&self) -> Result<()> {
+    self
+      .client
+      .log_message(MessageType::INFO, "server shutdown!")
+      .await;
     Ok(())
   }
 
@@ -84,6 +91,19 @@ impl LanguageServer for Server {
           }
         })
       })
+      .await;
+    self
+      .client
+      .log_message(
+        MessageType::LOG,
+        self
+          .text
+          .get_async(&params.text_document.uri)
+          .await
+          .as_deref()
+          .map(Deref::deref)
+          .unwrap_or_default(),
+      )
       .await;
   }
 
@@ -135,10 +155,6 @@ impl LanguageServer for Server {
           .ok_or_else(|| Error::internal_error())?;
         if let Some(new_text) = unescape(&content) {
           let range = content.deref().deref().range_full();
-          self
-            .text
-            .update_async(&uri, |_, text| text.replace_range(.., &new_text))
-            .await;
           let response = self
             .client
             .apply_edit(WorkspaceEdit {
@@ -154,7 +170,7 @@ impl LanguageServer for Server {
             .log_message(MessageType::LOG, to_string(&response).unwrap_or_default())
             .await;
         }
-        Ok(Some(json!({"success": true})))
+        Ok(None)
       }
       Err(err) => Err(Error::invalid_params(format!("Invalid command: {err:?}"))),
     }
