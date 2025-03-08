@@ -85,8 +85,7 @@ impl LanguageServer for Server {
         debug!(?text);
         params.content_changes.into_iter().for_each(|change| {
           if let Some(range) = change.range {
-            debug!(?range, text = ?text[text.deref().deref().range(range)]);
-            // text.replace_range(text.deref().deref().range(range), &change.text);
+            text.replace_range(text.deref().deref().range(range), &change.text);
           } else {
             *text = change.text;
           }
