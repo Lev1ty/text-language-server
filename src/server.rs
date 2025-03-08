@@ -82,6 +82,7 @@ impl LanguageServer for Server {
     self
       .text
       .update_async(&params.text_document.uri, |_, text| {
+        debug!(?text);
         params.content_changes.into_iter().for_each(|change| {
           if let Some(range) = change.range {
             text.replace_range(text.deref().deref().range(range), &change.text);
