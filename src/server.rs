@@ -1,6 +1,6 @@
 use scc::HashMap;
 use serde_json::{Value, from_value, to_string, to_value};
-use std::{collections, ops::Deref};
+use std::{collections, ops::Deref, process};
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
@@ -56,7 +56,10 @@ impl LanguageServer for Server {
   async fn initialized(&self, _: InitializedParams) {
     self
       .client
-      .log_message(MessageType::INFO, "server initialized!")
+      .log_message(
+        MessageType::INFO,
+        format!("server initialized! PID: {}", process::id()),
+      )
       .await;
   }
 
@@ -180,7 +183,7 @@ impl LanguageServer for Server {
           .ok_or_else(|| Error::internal_error())?;
         if let Some(new_text) = unescape(&content)
           .as_deref()
-          .map(str::trim_end)
+          .and_then(|s| s.strip_suffix('\n'))
           .map(ToString::to_string)
         {
           let range = content.deref().deref().range_full();

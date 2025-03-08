@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "text-language-server"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "derive_builder",
  "derive_more",
