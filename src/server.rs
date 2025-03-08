@@ -14,7 +14,7 @@ use tower_lsp::{
     WorkspaceEdit,
   },
 };
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use unescape::unescape;
 
 use crate::r#trait::Text;
@@ -153,13 +153,15 @@ impl LanguageServer for Server {
           WorkspaceEdit {
             changes: Some(collections::HashMap::from_iter([(
               uri,
-              vec![TextEdit { range, new_text }],
+              vec![],
+              // vec![TextEdit { range, new_text }],
             )])),
             ..Default::default()
           }
           .tap(|request| debug!(?request))
           .pipe(|request| self.client.apply_edit(request))
           .await
+          .inspect(|res| info!(?res))
           .inspect_err(|err| error!(?err))?;
         }
         Ok(None)
