@@ -181,19 +181,27 @@ impl LanguageServer for Server {
           .ok_or_else(|| Error::internal_error())?;
         if let Some(new_text) = unescape(&content) {
           let range = content.deref().deref().range_full();
-          let response = self
-            .client
-            .apply_edit(WorkspaceEdit {
-              document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
-                text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
-                edits: vec![OneOf::Left(TextEdit { range, new_text })],
-              }])),
-              ..Default::default()
-            })
-            .await?;
+          let request = WorkspaceEdit {
+            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+              text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
+              edits: vec![OneOf::Left(TextEdit { range, new_text })],
+            }])),
+            ..Default::default()
+          };
           self
             .client
-            .log_message(MessageType::LOG, to_string(&response).unwrap_or_default())
+            .log_message(
+              MessageType::LOG,
+              format!("request: {}", to_string(&request).unwrap_or_default()),
+            )
+            .await;
+          let result = self.client.apply_edit(request).await;
+          self
+            .client
+            .log_message(
+              MessageType::LOG,
+              format!("result: {}", to_string(&result).unwrap_or_default()),
+            )
             .await;
         }
         Ok(None)
