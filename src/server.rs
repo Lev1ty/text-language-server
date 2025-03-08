@@ -145,7 +145,7 @@ impl LanguageServer for Server {
             .deref()
             .deref()
             .range_full()
-            .pipe(|range| TextEdit { range, new_text })
+            .pipe(|range| TextEdit { range, new_text: Default::default() })
             .pipe(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
             .pipe(|changes| WorkspaceEdit {
               changes,
