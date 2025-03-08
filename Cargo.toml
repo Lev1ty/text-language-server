@@ -1,6 +1,6 @@
 [package]
 name = "text-language-server"
-version = "0.0.17"
+version = "0.0.18"
 edition = "2024"
 
 [dependencies]
@@ -14,5 +14,6 @@ thiserror = "2.0.12"
 tokio = { version = "1.43.0", features = ["full"] }
 tower-lsp = "0.20.0"
 tracing = "0.1.41"
+tracing-appender = "0.2.3"
 tracing-subscriber = "0.3.19"
 unescape = "0.1.0"
