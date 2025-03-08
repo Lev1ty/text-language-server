@@ -153,8 +153,10 @@ impl LanguageServer for Server {
           WorkspaceEdit {
             changes: Some(collections::HashMap::from_iter([(
               uri,
-              vec![],
-              // vec![TextEdit { range, new_text }],
+              vec![TextEdit {
+                range,
+                new_text: Default::default(),
+              }],
             )])),
             ..Default::default()
           }
