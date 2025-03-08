@@ -10,8 +10,7 @@ use tower_lsp::{
     CodeActionResponse, Command, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, InitializeParams,
     InitializeResult, InitializedParams, MessageType, PositionEncodingKind, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, TextEdit, Url,
-    WorkspaceEdit,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
   },
 };
 use tracing::{debug, error, info};
@@ -34,12 +33,8 @@ impl LanguageServer for Server {
       server_info: None,
       capabilities: ServerCapabilities {
         position_encoding: Some(PositionEncodingKind::UTF8),
-        text_document_sync: Some(TextDocumentSyncCapability::Options(
-          TextDocumentSyncOptions {
-            open_close: Some(true),
-            change: Some(TextDocumentSyncKind::INCREMENTAL),
-            ..Default::default()
-          },
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(
+          TextDocumentSyncKind::INCREMENTAL,
         )),
         code_action_provider: Some(Into::into(CodeActionOptions {
           code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
@@ -144,27 +139,22 @@ impl LanguageServer for Server {
           .get_async(&uri)
           .await
           .ok_or_else(|| Error::internal_error())?;
-        if let Some(new_text) = unescape(&content)
-          .as_deref()
-          .and_then(|s| s.strip_suffix('\n'))
-          .map(ToString::to_string)
-        {
-          let range = content.deref().deref().range_full();
-          WorkspaceEdit {
-            changes: Some(collections::HashMap::from_iter([(
-              uri,
-              vec![TextEdit {
-                range,
-                new_text: Default::default(),
-              }],
-            )])),
-            ..Default::default()
-          }
-          .tap(|request| debug!(?request))
-          .pipe(|request| self.client.apply_edit(request))
-          .await
-          .inspect(|res| info!(?res))
-          .inspect_err(|err| error!(?err))?;
+        if let Some(new_text) = unescape(&content) {
+          content
+            .deref()
+            .deref()
+            .range_full()
+            .pipe(|range| TextEdit { range, new_text })
+            .pipe(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
+            .pipe(|changes| WorkspaceEdit {
+              changes,
+              ..Default::default()
+            })
+            .tap(|request| debug!(?request))
+            .pipe(|request| self.client.apply_edit(request))
+            .await
+            .inspect(|res| info!(?res))
+            .inspect_err(|err| error!(?err))?;
         }
         Ok(None)
       }
