@@ -15,7 +15,7 @@ use tower_lsp::{
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
   },
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 use unescape::unescape;
 
 #[derive(Debug, derive_builder::Builder)]
@@ -93,6 +93,13 @@ impl LanguageServer for Server {
         })
       })
       .await;
+    trace!(
+      text = self
+        .text
+        .get_async(&params.text_document.uri)
+        .await
+        .as_deref()
+    );
   }
 
   #[tracing::instrument(ret)]

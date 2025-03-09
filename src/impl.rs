@@ -30,11 +30,16 @@ impl Text for &str {
     lsp_types::Range {
       start: Position::new(0, 0),
       end: self
-        .lines()
-        .enumerate()
-        .last()
-        .map(|(line, s)| Position::new(line as u32, s.chars().count() as u32))
-        .unwrap_or(Position::new(0, 1)),
+        .ends_with('\n')
+        .then(|| Position::new(self.lines().count() as u32, 0))
+        .unwrap_or_else(|| {
+          self
+            .lines()
+            .enumerate()
+            .last()
+            .map(|(line, s)| Position::new(line as u32, s.chars().count() as u32))
+            .unwrap_or(Position::new(0, 1))
+        }),
     }
   }
 }
@@ -99,5 +104,18 @@ mod tests {
     assert_eq!(text.position(Position::new(0, 10)), 10);
     assert_eq!(text.position(Position::new(0, 28)), 28); // Last character
     assert_eq!(text.position(Position::new(0, 29)), 28); // One character out of bounds
+  }
+
+  #[test]
+  fn test_position_new_line() {
+    let text = "First line\n";
+    assert_eq!(text.position(Position::new(0, 0)), 0);
+    assert_eq!(text.position(Position::new(0, 5)), 5);
+    assert_eq!(text.position(Position::new(0, 9)), 9);
+    assert_eq!(text.position(Position::new(0, 10)), 10);
+    assert_eq!(text.position(Position::new(0, 11)), 10);
+    assert_eq!(text.position(Position::new(1, 0)), 11);
+    assert_eq!(text.position(Position::new(1, 1)), 11);
+    assert_eq!(text.as_bytes()[10], b'\n');
   }
 }
