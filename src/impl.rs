@@ -1,5 +1,6 @@
 use crate::r#trait::Text;
 use std::ops;
+use tap::prelude::*;
 use tower_lsp::lsp_types::{self, Position};
 
 impl Text for &str {
@@ -8,15 +9,17 @@ impl Text for &str {
       .lines()
       .enumerate()
       .map(|(line, s)| {
-        s.chars()
-          .take(
-            (line == position.line as usize)
-              .then_some(position.character)
-              .unwrap_or(u32::MAX) as usize,
-          )
-          .map(char::len_utf8)
-          .sum::<usize>()
-          + ((line != position.line as usize) as usize)
+        (line == position.line as usize)
+          .then(|| {
+            s.encode_utf16()
+              .take((position.character as usize).saturating_add(1))
+              .pipe(char::decode_utf16)
+              .map(|res| res.unwrap_or(char::REPLACEMENT_CHARACTER))
+              .collect::<String>()
+              .len()
+              .saturating_sub(1)
+          })
+          .unwrap_or_else(|| s.len().saturating_add(1))
       })
       .take((position.line as usize).saturating_add(1))
       .sum::<usize>()
@@ -37,8 +40,8 @@ impl Text for &str {
             .lines()
             .enumerate()
             .last()
-            .map(|(line, s)| Position::new(line as u32, s.chars().count() as u32))
-            .unwrap_or(Position::new(0, 1))
+            .map(|(line, s)| Position::new(line as u32, s.encode_utf16().count() as u32))
+            .unwrap_or(Position::new(0, 0))
         }),
     }
   }
@@ -47,7 +50,7 @@ impl Text for &str {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use tower_lsp::lsp_types::Position;
+  use tower_lsp::lsp_types::{Position, Range};
 
   #[test]
   fn test_position_ascii() {
@@ -57,17 +60,16 @@ mod tests {
     assert_eq!(text.position(Position::new(0, 0)), 0);
     assert_eq!(text.position(Position::new(0, 1)), 1);
     assert_eq!(text.position(Position::new(0, 4)), 4);
-    assert_eq!(text.position(Position::new(0, 5)), 5);
-    assert_eq!(text.position(Position::new(0, 6)), 5);
+    assert_eq!(text.position(Position::new(0, 5)), 4);
 
     // Second line
     assert_eq!(text.position(Position::new(1, 0)), 6);
     assert_eq!(text.position(Position::new(1, 3)), 9);
-    assert_eq!(text.position(Position::new(1, 5)), 11);
+    assert_eq!(text.position(Position::new(1, 4)), 10);
 
     // Third line
     assert_eq!(text.position(Position::new(2, 0)), 12);
-    assert_eq!(text.position(Position::new(2, 4)), 16);
+    assert_eq!(text.position(Position::new(2, 3)), 15);
   }
 
   #[test]
@@ -77,19 +79,11 @@ mod tests {
 
     // First line (with emoji is a single character but counts as one position)
     assert_eq!(text.position(Position::new(0, 0)), 0);
-    assert_eq!(text.position(Position::new(0, 6)), 6); // Position before emoji
-    assert_eq!(text.position(Position::new(0, 7)), 10); // Position after emoji
-
-    // Second line with Chinese characters (each is one character)
-    assert_eq!(text.position(Position::new(1, 0)), 11);
-    assert_eq!(text.position(Position::new(1, 1)), 14); // After "北"
-    assert_eq!(text.position(Position::new(1, 2)), 17); // After "京"
-    assert_eq!(text.position(Position::new(1, 10)), 25); // End of line
-
-    // Third line with arrow symbols (each is one character)
-    assert_eq!(text.position(Position::new(2, 0)), 27);
-    assert_eq!(text.position(Position::new(2, 2)), 33); // After first two arrows
-    assert_eq!(text.position(Position::new(2, 4)), 39); // End of text
+    assert_eq!(text.as_bytes()[5], b' ');
+    assert_eq!(text.position(Position::new(0, 6)), 8); // Position start of emoji
+    assert_eq!(text.position(Position::new(0, 9)), 9); // Position end of emoji
+    assert_eq!(text.position(Position::new(1, 0)), 13);
+    assert_eq!(text.position(Position::new(2, 0)), 29);
   }
 
   #[test]
@@ -102,8 +96,8 @@ mod tests {
   fn test_position_single_line() {
     let text = "Single line with no newlines";
     assert_eq!(text.position(Position::new(0, 10)), 10);
-    assert_eq!(text.position(Position::new(0, 28)), 28); // Last character
-    assert_eq!(text.position(Position::new(0, 29)), 28); // One character out of bounds
+    assert_eq!(text.position(Position::new(0, 27)), 27); // Last character
+    assert_eq!(text.position(Position::new(0, 28)), 27); // One character out of bounds
   }
 
   #[test]
@@ -112,10 +106,31 @@ mod tests {
     assert_eq!(text.position(Position::new(0, 0)), 0);
     assert_eq!(text.position(Position::new(0, 5)), 5);
     assert_eq!(text.position(Position::new(0, 9)), 9);
-    assert_eq!(text.position(Position::new(0, 10)), 10);
-    assert_eq!(text.position(Position::new(0, 11)), 10);
+    assert_eq!(text.as_bytes()[9], b'e');
+    assert_eq!(text.position(Position::new(0, 10)), 9);
+    assert_eq!(text.position(Position::new(0, 11)), 9);
     assert_eq!(text.position(Position::new(1, 0)), 11);
     assert_eq!(text.position(Position::new(1, 1)), 11);
     assert_eq!(text.as_bytes()[10], b'\n');
+  }
+
+  #[test]
+  fn test_range() {
+    let text = r#"{ "text": "hello\n👋\n👋world" }"#;
+    assert_eq!(text.lines().count(), 1);
+    assert_eq!(
+      text.range(Range {
+        start: Position::new(0, 29),
+        end: Position::new(0, 29),
+      }),
+      33..33
+    );
+    assert_eq!(text.as_bytes()[33], b'"');
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(33..33, " "))
+        .as_str(),
+      r#"{ "text": "hello\n👋\n👋world " }"#
+    );
   }
 }

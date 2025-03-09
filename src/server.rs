@@ -11,7 +11,7 @@ use tower_lsp::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionResponse, Command, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, InitializeParams,
-    InitializeResult, InitializedParams, MessageType, PositionEncodingKind, ServerCapabilities,
+    InitializeResult, InitializedParams, MessageType, ServerCapabilities,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
   },
 };
@@ -32,7 +32,6 @@ impl LanguageServer for Server {
     Ok(InitializeResult {
       server_info: None,
       capabilities: ServerCapabilities {
-        position_encoding: Some(PositionEncodingKind::UTF8),
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
           TextDocumentSyncKind::INCREMENTAL,
         )),
@@ -94,11 +93,13 @@ impl LanguageServer for Server {
       })
       .await;
     trace!(
-      text = self
+      text = %self
         .text
         .get_async(&params.text_document.uri)
         .await
         .as_deref()
+        .map(Deref::deref)
+        .unwrap_or_default()
     );
   }
 
