@@ -12,12 +12,11 @@ impl Text for &str {
         (line == position.line as usize)
           .then(|| {
             s.encode_utf16()
-              .take((position.character as usize).saturating_add(1))
+              .take(position.character as usize)
               .pipe(char::decode_utf16)
               .map(|res| res.unwrap_or(char::REPLACEMENT_CHARACTER))
               .collect::<String>()
               .len()
-              .saturating_sub(1)
           })
           .unwrap_or_else(|| s.len().saturating_add(1))
       })
@@ -60,7 +59,8 @@ mod tests {
     assert_eq!(text.position(Position::new(0, 0)), 0);
     assert_eq!(text.position(Position::new(0, 1)), 1);
     assert_eq!(text.position(Position::new(0, 4)), 4);
-    assert_eq!(text.position(Position::new(0, 5)), 4);
+    assert_eq!(text.position(Position::new(0, 5)), 5);
+    assert_eq!(text.position(Position::new(0, 6)), 5);
 
     // Second line
     assert_eq!(text.position(Position::new(1, 0)), 6);
@@ -80,10 +80,11 @@ mod tests {
     // First line (with emoji is a single character but counts as one position)
     assert_eq!(text.position(Position::new(0, 0)), 0);
     assert_eq!(text.as_bytes()[5], b' ');
-    assert_eq!(text.position(Position::new(0, 6)), 8); // Position start of emoji
-    assert_eq!(text.position(Position::new(0, 9)), 9); // Position end of emoji
-    assert_eq!(text.position(Position::new(1, 0)), 13);
-    assert_eq!(text.position(Position::new(2, 0)), 29);
+    assert_eq!(text.position(Position::new(0, 6)), 6); // Position start of emoji
+    assert_eq!(text.position(Position::new(0, 9)), 10); // Position end of emoji
+    assert_eq!(text.position(Position::new(0, 10)), 10);
+    assert_eq!(text.position(Position::new(1, 0)), 11);
+    assert_eq!(text.position(Position::new(2, 0)), 27);
   }
 
   #[test]
@@ -97,7 +98,8 @@ mod tests {
     let text = "Single line with no newlines";
     assert_eq!(text.position(Position::new(0, 10)), 10);
     assert_eq!(text.position(Position::new(0, 27)), 27); // Last character
-    assert_eq!(text.position(Position::new(0, 28)), 27); // One character out of bounds
+    assert_eq!(text.position(Position::new(0, 28)), 28); // One character out of bounds for exclusive upper bound
+    assert_eq!(text.position(Position::new(0, 29)), 28); // Two characters out of bounds clipped
   }
 
   #[test]
@@ -107,8 +109,8 @@ mod tests {
     assert_eq!(text.position(Position::new(0, 5)), 5);
     assert_eq!(text.position(Position::new(0, 9)), 9);
     assert_eq!(text.as_bytes()[9], b'e');
-    assert_eq!(text.position(Position::new(0, 10)), 9);
-    assert_eq!(text.position(Position::new(0, 11)), 9);
+    assert_eq!(text.position(Position::new(0, 10)), 10);
+    assert_eq!(text.position(Position::new(0, 11)), 10);
     assert_eq!(text.position(Position::new(1, 0)), 11);
     assert_eq!(text.position(Position::new(1, 1)), 11);
     assert_eq!(text.as_bytes()[10], b'\n');
@@ -131,6 +133,66 @@ mod tests {
         .tap_mut(|s| s.replace_range(33..33, " "))
         .as_str(),
       r#"{ "text": "hello\n👋\n👋world " }"#
+    );
+  }
+
+  #[test]
+  fn test_range_unescape() {
+    let text = r#"{ "text": "hello\n👋\n👋world" }"#;
+    // 2025-03-09T20:05:26.535680Z TRACE tower_lsp::codec: <-
+    // {"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///Users/lev1ty/Projects/text-language-server/test.json","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":16},"end":{"line":0,"character":18}},"text":"\n"},{"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":4}},"text":"\n"}]}}
+    assert_eq!(
+      text.range(Range {
+        start: Position::new(0, 16),
+        end: Position::new(0, 18),
+      }),
+      16..18
+    );
+    assert_eq!(text.as_bytes()[16], b'\\');
+    assert_eq!(text.as_bytes()[17], b'n');
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(16..18, "\n"))
+        .as_str(),
+      "{ \"text\": \"hello\n👋\\n👋world\" }"
+    );
+    let text = "{ \"text\": \"hello\n👋\\n👋world\" }";
+    assert_eq!(
+      text.range(Range {
+        start: Position::new(1, 2),
+        end: Position::new(1, 4),
+      }),
+      21..23
+    );
+    assert_eq!(text.as_bytes()[21], b'\\');
+    assert_eq!(text.as_bytes()[22], b'n');
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(21..23, "\n"))
+        .as_str(),
+      "{ \"text\": \"hello\n👋\n👋world\" }"
+    );
+  }
+
+  #[test]
+  fn test_range_unescape_line_end() {
+    let text = "\\n";
+    // 2025-03-09T20:25:42.131072Z TRACE tower_lsp::codec: <-
+    // {"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///Users/lev1ty/Projects/text-language-server/test.json","version":1},"contentChanges":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":2}},"text":"\\"}]}}
+    assert_eq!(
+      text.range(Range {
+        start: Position::new(0, 0),
+        end: Position::new(0, 2),
+      }),
+      0..2
+    );
+    assert_eq!(text.as_bytes()[0], b'\\');
+    assert_eq!(text.as_bytes()[1], b'n');
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(0..2, "\n"))
+        .as_str(),
+      "\n"
     );
   }
 }
