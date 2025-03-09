@@ -1,3 +1,4 @@
+use crate::r#trait::Text;
 use scc::HashMap;
 use serde_json::{Value, from_value, to_value};
 use std::{collections, ops::Deref, process, time::Duration};
@@ -19,8 +20,6 @@ use tower_lsp::{
 };
 use tracing::{debug, error, info};
 use unescape::unescape;
-
-use crate::r#trait::Text;
 
 #[derive(Debug, derive_builder::Builder)]
 pub struct Server {
@@ -162,7 +161,10 @@ impl LanguageServer for Server {
               ..Default::default()
             })
             .tap(|request| debug!(?request))
-            .pipe(|request| self.client.apply_edit(request))
+            .pipe(|request| {
+              let client = self.client.clone();
+              task::spawn(async move { client.apply_edit(request).await })
+            })
             .pipe(|fut| timeout(Duration::from_millis(200), fut))
             .await
             .inspect(|res| info!(?res))
