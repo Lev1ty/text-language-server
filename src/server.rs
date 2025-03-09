@@ -1,12 +1,8 @@
 use crate::r#trait::Text;
 use scc::HashMap;
 use serde_json::{Value, from_value, to_value};
-use std::{collections, ops::Deref, process, time::Duration};
+use std::{collections, ops::Deref, process};
 use tap::prelude::*;
-use tokio::{
-  task,
-  time::{sleep, timeout},
-};
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
@@ -36,9 +32,7 @@ impl LanguageServer for Server {
       server_info: None,
       capabilities: ServerCapabilities {
         position_encoding: Some(PositionEncodingKind::UTF8),
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-          TextDocumentSyncKind::INCREMENTAL,
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         code_action_provider: Some(Into::into(CodeActionOptions {
           code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
           ..Default::default()
@@ -61,12 +55,6 @@ impl LanguageServer for Server {
         format!("Server initialized! PID: {}", process::id()),
       )
       .await;
-    task::spawn(async {
-      loop {
-        info!("Heartbeat");
-        sleep(Duration::from_secs(1)).await;
-      }
-    });
   }
 
   #[tracing::instrument(ret)]
@@ -86,14 +74,18 @@ impl LanguageServer for Server {
       .await;
   }
 
-  #[tracing::instrument(ret)]
+  // Uncommenting the tracing::instrument proc macro
+  // causes requests to did_change to fail to route
+  // #[tracing::instrument(ret)]
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
     self
       .text
       .update_async(&params.text_document.uri, |_, text| {
-        debug!(?text);
         params.content_changes.into_iter().for_each(|change| {
           if let Some(range) = change.range {
+            // Using: text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::INCREMENTAL)),
+            // causes bugs with this replace_range function, need unit tests. Setting to TextDocumentSyncKind::FULL
+            // for now.
             text.replace_range(text.deref().deref().range(range), &change.text);
           } else {
             *text = change.text;
@@ -161,11 +153,7 @@ impl LanguageServer for Server {
               ..Default::default()
             })
             .tap(|request| debug!(?request))
-            .pipe(|request| {
-              let client = self.client.clone();
-              task::spawn(async move { client.apply_edit(request).await })
-            })
-            .pipe(|fut| timeout(Duration::from_millis(200), fut))
+            .pipe(|request| self.client.apply_edit(request))
             .await
             .inspect(|res| info!(?res))
             .inspect_err(|err| error!(?err));
