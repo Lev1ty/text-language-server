@@ -1,7 +1,8 @@
 use crate::r#trait::Text;
+use futures_lite::FutureExt;
 use scc::HashMap;
 use serde_json::{Value, from_value, to_value};
-use std::{collections, ops::Deref, process};
+use std::{collections, future::ready, ops::Deref, process};
 use tap::prelude::*;
 use tower_lsp::{
   Client, LanguageServer,
@@ -32,7 +33,9 @@ impl LanguageServer for Server {
       server_info: None,
       capabilities: ServerCapabilities {
         position_encoding: Some(PositionEncodingKind::UTF8),
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(
+          TextDocumentSyncKind::INCREMENTAL,
+        )),
         code_action_provider: Some(Into::into(CodeActionOptions {
           code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
           ..Default::default()
@@ -83,9 +86,6 @@ impl LanguageServer for Server {
       .update_async(&params.text_document.uri, |_, text| {
         params.content_changes.into_iter().for_each(|change| {
           if let Some(range) = change.range {
-            // Using: text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::INCREMENTAL)),
-            // causes bugs with this replace_range function, need unit tests. Setting to TextDocumentSyncKind::FULL
-            // for now.
             text.replace_range(text.deref().deref().range(range), &change.text);
           } else {
             *text = change.text;
@@ -136,28 +136,33 @@ impl LanguageServer for Server {
         else {
           return Err(Error::invalid_params("Missing URI argument".to_string()));
         };
-        let content = self
+        self
           .text
           .get_async(&uri)
           .await
-          .ok_or_else(|| Error::internal_error())?;
-        if let Some(new_text) = unescape(&content) {
-          let _ = content
-            .deref()
-            .deref()
-            .range_full()
-            .pipe(|range| TextEdit { range, new_text })
-            .pipe(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
-            .pipe(|changes| WorkspaceEdit {
-              changes,
-              ..Default::default()
-            })
-            .tap(|request| debug!(?request))
-            .pipe(|request| self.client.apply_edit(request))
-            .await
-            .inspect(|res| info!(?res))
-            .inspect_err(|err| error!(?err));
-        }
+          .ok_or_else(|| Error::internal_error())?
+          .pipe(|content| unescape(&content).map(|new_text| (content, new_text)))
+          .map(|(content, new_text)| {
+            content
+              .deref()
+              .deref()
+              .range_full()
+              .pipe(|range| TextEdit { range, new_text })
+          })
+          .map(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
+          .map(|changes| WorkspaceEdit {
+            changes,
+            ..Default::default()
+          })
+          .inspect(|request| debug!(?request))
+          .map(|request| {
+            FutureExt::boxed(async { self.client.apply_edit(request).await.map(Some).transpose() })
+          })
+          .unwrap_or(FutureExt::boxed(ready(None)))
+          .await
+          .transpose()
+          .inspect(|res| info!(?res))
+          .inspect_err(|err| error!(?err))?;
         Ok(None)
       }
       Err(err) => Err(Error::invalid_params(format!("Invalid command: {err:?}"))),
