@@ -2,7 +2,10 @@ use scc::HashMap;
 use serde_json::{Value, from_value, to_value};
 use std::{collections, ops::Deref, process, time::Duration};
 use tap::prelude::*;
-use tokio::time::timeout;
+use tokio::{
+  task,
+  time::{sleep, timeout},
+};
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
@@ -59,6 +62,12 @@ impl LanguageServer for Server {
         format!("Server initialized! PID: {}", process::id()),
       )
       .await;
+    task::spawn(async {
+      loop {
+        info!("Heartbeat");
+        sleep(Duration::from_secs(1)).await;
+      }
+    });
   }
 
   #[tracing::instrument(ret)]
