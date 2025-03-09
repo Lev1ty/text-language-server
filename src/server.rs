@@ -9,8 +9,9 @@ use tower_lsp::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionResponse, Command, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, InitializeParams,
-    InitializeResult, InitializedParams, MessageType, PositionEncodingKind, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
+    InitializeResult, InitializedParams, MessageType, Position, PositionEncodingKind, Range,
+    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    WorkspaceEdit,
   },
 };
 use tracing::{debug, error, info};
@@ -79,8 +80,6 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(ret)]
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
-    debug!("Return early");
-    return;
     self
       .text
       .update_async(&params.text_document.uri, |_, text| {
@@ -147,7 +146,19 @@ impl LanguageServer for Server {
             .deref()
             .deref()
             .range_full()
-            .pipe(|range| TextEdit { range, new_text })
+            .pipe(|range| TextEdit {
+              range: Range {
+                start: Position {
+                  line: 0,
+                  character: 0,
+                },
+                end: Position {
+                  line: 0,
+                  character: 0,
+                },
+              },
+              new_text,
+            })
             .pipe(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
             .pipe(|changes| WorkspaceEdit {
               changes,
