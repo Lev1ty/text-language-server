@@ -79,6 +79,8 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(ret)]
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
+    debug!("Return early");
+    return;
     self
       .text
       .update_async(&params.text_document.uri, |_, text| {
@@ -145,7 +147,7 @@ impl LanguageServer for Server {
             .deref()
             .deref()
             .range_full()
-            .pipe(|range| TextEdit { range, new_text: Default::default() })
+            .pipe(|range| TextEdit { range, new_text })
             .pipe(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
             .pipe(|changes| WorkspaceEdit {
               changes,
