@@ -1,5 +1,5 @@
 use crate::r#trait::Text;
-use std::ops;
+use ropey::{LineType, RopeSlice};
 use tap::prelude::*;
 use tower_lsp::lsp_types::{self, Position};
 
@@ -24,10 +24,6 @@ impl Text for &str {
       .sum::<usize>()
   }
 
-  fn range(&self, range: lsp_types::Range) -> ops::Range<usize> {
-    self.position(range.start)..self.position(range.end)
-  }
-
   fn range_full(&self) -> lsp_types::Range {
     lsp_types::Range {
       start: Position::new(0, 0),
@@ -46,9 +42,37 @@ impl Text for &str {
   }
 }
 
+impl Text for RopeSlice<'_> {
+  fn position(&self, position: lsp_types::Position) -> usize {
+    self
+      .lines(LineType::LF_CR)
+      .enumerate()
+      .map(|(line, s)| {
+        (line == position.line as usize)
+          .then(|| s.utf16_to_byte_idx(position.character as usize))
+          .unwrap_or_else(|| s.len())
+      })
+      .take((position.line as usize).saturating_add(1))
+      .sum::<usize>()
+  }
+
+  fn range_full(&self) -> lsp_types::Range {
+    lsp_types::Range {
+      start: Position::new(0, 0),
+      end: self
+        .lines(LineType::LF_CR)
+        .enumerate()
+        .last()
+        .map(|(line, s)| Position::new(line as u32, s.len_utf16() as u32))
+        .unwrap_or(Position::new(0, 0)),
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+  use ropey::Rope;
   use tower_lsp::lsp_types::{Position, Range};
 
   #[test]
@@ -188,6 +212,56 @@ mod tests {
     );
     assert_eq!(text.as_bytes()[0], b'\\');
     assert_eq!(text.as_bytes()[1], b'n');
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(0..2, "\n"))
+        .as_str(),
+      "\n"
+    );
+  }
+
+  #[test]
+  fn test_range_unescape_rope() {
+    let text = Rope::from_str(r#"{ "text": "hello\n👋\n👋world" }"#);
+    assert_eq!(
+      text.slice(..).range(Range {
+        start: Position::new(0, 16),
+        end: Position::new(0, 18),
+      }),
+      16..18
+    );
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(16..18, "\n"))
+        .as_str(),
+      "{ \"text\": \"hello\n👋\\n👋world\" }"
+    );
+    let text = Rope::from_str("{ \"text\": \"hello\n👋\\n👋world\" }");
+    assert_eq!(
+      text.slice(..).range(Range {
+        start: Position::new(1, 2),
+        end: Position::new(1, 4),
+      }),
+      21..23
+    );
+    assert_eq!(
+      String::from(text)
+        .tap_mut(|s| s.replace_range(21..23, "\n"))
+        .as_str(),
+      "{ \"text\": \"hello\n👋\n👋world\" }"
+    );
+  }
+
+  #[test]
+  fn test_range_unescape_line_end_rope() {
+    let text = Rope::from_str("\\n");
+    assert_eq!(
+      text.slice(..).range(Range {
+        start: Position::new(0, 0),
+        end: Position::new(0, 2),
+      }),
+      0..2
+    );
     assert_eq!(
       String::from(text)
         .tap_mut(|s| s.replace_range(0..2, "\n"))

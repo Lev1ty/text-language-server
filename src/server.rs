@@ -1,5 +1,6 @@
 use crate::r#trait::Text;
 use futures_lite::FutureExt;
+use ropey::Rope;
 use scc::HashMap;
 use serde_json::{Value, from_value, to_value};
 use std::{collections, future::ready, ops::Deref, process};
@@ -22,7 +23,7 @@ use unescape::unescape;
 pub struct Server {
   client: Client,
   #[builder(default)]
-  text: HashMap<Url, String>,
+  text: HashMap<Url, Rope>,
 }
 
 #[tower_lsp::async_trait]
@@ -72,7 +73,7 @@ impl LanguageServer for Server {
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
     self
       .text
-      .upsert_async(params.text_document.uri, params.text_document.text)
+      .upsert_async(params.text_document.uri, params.text_document.text.into())
       .await;
   }
 
@@ -85,9 +86,11 @@ impl LanguageServer for Server {
       .update_async(&params.text_document.uri, |_, text| {
         params.content_changes.into_iter().for_each(|change| {
           if let Some(range) = change.range {
-            text.replace_range(text.deref().deref().range(range), &change.text);
+            let range = text.deref().slice(..).range(range);
+            text.remove(range.clone());
+            text.insert(range.start, &change.text);
           } else {
-            *text = change.text;
+            *text = change.text.into();
           }
         })
       })
@@ -98,7 +101,7 @@ impl LanguageServer for Server {
         .get_async(&params.text_document.uri)
         .await
         .as_deref()
-        .map(Deref::deref)
+        .map(ToString::to_string)
         .unwrap_or_default()
     );
   }
@@ -149,11 +152,10 @@ impl LanguageServer for Server {
           .get_async(&uri)
           .await
           .ok_or_else(|| Error::internal_error())?
-          .pipe(|content| unescape(&content).map(|new_text| (content, new_text)))
+          .pipe_deref(ToString::to_string)
+          .pipe_deref(|content| unescape(content).map(|new_text| (content, new_text)))
           .map(|(content, new_text)| {
             content
-              .deref()
-              .deref()
               .range_full()
               .pipe(|range| TextEdit { range, new_text })
           })
