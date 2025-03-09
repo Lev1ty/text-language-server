@@ -1,7 +1,8 @@
 use scc::HashMap;
 use serde_json::{Value, from_value, to_value};
-use std::{collections, ops::Deref, process};
+use std::{collections, ops::Deref, process, time::Duration};
 use tap::prelude::*;
+use tokio::time::timeout;
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::{Error, Result},
@@ -9,9 +10,8 @@ use tower_lsp::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionResponse, Command, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, InitializeParams,
-    InitializeResult, InitializedParams, MessageType, Position, PositionEncodingKind, Range,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
-    WorkspaceEdit,
+    InitializeResult, InitializedParams, MessageType, PositionEncodingKind, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
   },
 };
 use tracing::{debug, error, info};
@@ -142,23 +142,11 @@ impl LanguageServer for Server {
           .await
           .ok_or_else(|| Error::internal_error())?;
         if let Some(new_text) = unescape(&content) {
-          content
+          let _ = content
             .deref()
             .deref()
             .range_full()
-            .pipe(|range| TextEdit {
-              range: Range {
-                start: Position {
-                  line: 0,
-                  character: 0,
-                },
-                end: Position {
-                  line: 0,
-                  character: 0,
-                },
-              },
-              new_text,
-            })
+            .pipe(|range| TextEdit { range, new_text })
             .pipe(|text_edit| Some(collections::HashMap::from_iter([(uri, vec![text_edit])])))
             .pipe(|changes| WorkspaceEdit {
               changes,
@@ -166,9 +154,10 @@ impl LanguageServer for Server {
             })
             .tap(|request| debug!(?request))
             .pipe(|request| self.client.apply_edit(request))
+            .pipe(|fut| timeout(Duration::from_millis(200), fut))
             .await
             .inspect(|res| info!(?res))
-            .inspect_err(|err| error!(?err))?;
+            .inspect_err(|err| error!(?err));
         }
         Ok(None)
       }
