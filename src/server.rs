@@ -44,7 +44,10 @@ impl LanguageServer for Server {
           ..Default::default()
         })),
         execute_command_provider: Some(ExecuteCommandOptions {
-          commands: vec![UnescapeSource::COMMAND_NAME.to_string()],
+          commands: UnescapeSource::COMMAND_NAMES
+            .into_iter()
+            .map(ToString::to_string)
+            .collect(),
           ..Default::default()
         }),
         ..Default::default()
@@ -107,19 +110,18 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(ret, err)]
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-    Ok(Some(vec![UnescapeSource.code_action(&params).await?]))
+    Ok(Some(UnescapeSource.code_action(&params).await?))
   }
 
   #[tracing::instrument(ret, err)]
   async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
-    match params.command.as_str() {
-      UnescapeSource::COMMAND_NAME => {
-        UnescapeSource
-          .with_server(self)
-          .execute_command(&params)
-          .await
-      }
-      _ => Ok(None),
+    if UnescapeSource::COMMAND_NAMES.contains(&params.command.as_str()) {
+      UnescapeSource
+        .with_server(self)
+        .execute_command(&params)
+        .await
+    } else {
+      Ok(None)
     }
   }
 }

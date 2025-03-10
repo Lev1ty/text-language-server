@@ -7,12 +7,15 @@ use tower_lsp::{
 };
 
 pub trait CommandMeta {
-  const COMMAND_NAME: &'static str;
-  const COMMAND_DISPLAY_NAME: &'static str;
+  const COMMAND_NAMES: &'static [&'static str];
+  const COMMAND_DISPLAY_NAMES: &'static [&'static str];
 }
 
 pub trait CodeAction {
-  async fn code_action(&self, params: &CodeActionParams) -> Result<lsp_types::CodeActionOrCommand>;
+  async fn code_action(
+    &self,
+    params: &CodeActionParams,
+  ) -> Result<Vec<lsp_types::CodeActionOrCommand>>;
 }
 
 pub trait ExecuteCommand {
