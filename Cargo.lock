@@ -1485,7 +1485,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "text-language-server"
-version = "0.0.42"
+version = "0.0.43"
 dependencies = [
  "bon",
  "console-subscriber",
@@ -1505,7 +1505,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tracing-test",
- "unescape",
+ "unescaper",
 ]
 
 [[package]]
@@ -1864,10 +1864,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "unescape"
-version = "0.1.0"
+name = "unescaper"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccb97dac3243214f8d8507998906ca3e2e0b900bf9bf4870477f125b82e68f6e"
+checksum = "c878a167baa8afd137494101a688ef8c67125089ff2249284bd2b5f9bfedb815"
+dependencies = [
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "unicode-ident"

@@ -13,7 +13,8 @@ use tower_lsp::{
     ExecuteCommandParams, Range, TextEdit, Url, WorkspaceEdit,
   },
 };
-use unescape::unescape;
+use tracing::error;
+use unescaper::unescape;
 
 impl CommandMeta for Unescape {
   const COMMAND_NAMES: &'static [&'static str] = &[
@@ -142,7 +143,9 @@ impl ExecuteCommand for WithServer<'_, Unescape> {
       })
       .unwrap_or(FutureExt::boxed(ready(None)))
       .await
-      .transpose()?;
+      .transpose()
+      .inspect_err(|err| error!(?err))
+      .map_err(|_| Error::internal_error())?;
     Ok(None)
   }
 }
