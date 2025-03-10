@@ -26,35 +26,28 @@ impl CommandMeta for Unescape {
 impl CodeAction for WithServer<'_, Unescape> {
   async fn code_action(&self, params: &CodeActionParams) -> Result<CodeActionResponse> {
     let mut actions = vec![];
-    if params
-      .context
-      .only
-      .iter()
-      .flat_map(identity)
-      .any(|kind| kind == &CodeActionKind::SOURCE)
-    {
-      actions.push(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
+    actions.push(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
+      title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
+      kind: Some(CodeActionKind::SOURCE),
+      command: Some(Command {
         title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
-        kind: Some(CodeActionKind::SOURCE),
-        command: Some(Command {
-          title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
-          command: String::from(Unescape::COMMAND_NAMES[0]),
-          arguments: Some(vec![to_value(&params.text_document.uri).map_err(
-            |err| {
-              format!("Failed to convert text document URI to JSON value: {err:?}")
-                .pipe(Error::invalid_params)
-            },
-          )?]),
-        }),
-        ..Default::default()
-      }));
-    }
-    if params
-      .context
-      .only
-      .iter()
-      .flat_map(identity)
-      .any(|kind| kind == &CodeActionKind::QUICKFIX)
+        command: String::from(Unescape::COMMAND_NAMES[0]),
+        arguments: Some(vec![to_value(&params.text_document.uri).map_err(
+          |err| {
+            format!("Failed to convert text document URI to JSON value: {err:?}")
+              .pipe(Error::invalid_params)
+          },
+        )?]),
+      }),
+      ..Default::default()
+    }));
+    if (params.context.only.is_none()
+      || params
+        .context
+        .only
+        .iter()
+        .flat_map(identity)
+        .any(|kind| kind == &CodeActionKind::SOURCE || kind == &CodeActionKind::QUICKFIX))
       && self
         .server()
         .text()
