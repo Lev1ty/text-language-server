@@ -1,13 +1,14 @@
 [package]
 name = "text-language-server"
-version = "0.0.38"
+version = "0.0.39"
 edition = "2024"
 
 [dependencies]
+bon = "3.4.0"
 console-subscriber = "0.4.1"
-derive_builder = "0.20.2"
-derive_more = { version = "2.0.1", features = ["display", "from"] }
+derive_more = { version = "2.0.1", features = ["deref", "display", "from"] }
 futures-lite = "2.6.0"
+getset = "0.1.5"
 ropey = { version = "2.0.0-alpha.2", features = ["metric_utf16"] }
 scc = "2.3.3"
 serde = "1.0.218"
