@@ -110,7 +110,7 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(ret, err)]
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-    Ok(Some(Unescape.code_action(&params).await?))
+    Ok(Some(Unescape.with_server(self).code_action(&params).await?))
   }
 
   #[tracing::instrument(ret, err)]

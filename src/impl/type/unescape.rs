@@ -4,7 +4,7 @@ use crate::{
 };
 use futures_lite::FutureExt;
 use serde_json::{Value, from_value, to_value};
-use std::{collections::HashMap, future::ready};
+use std::{collections::HashMap, convert::identity, future::ready};
 use tap::prelude::*;
 use tower_lsp::{
   jsonrpc::{Error, Result},
@@ -23,15 +23,22 @@ impl CommandMeta for Unescape {
   const COMMAND_DISPLAY_NAMES: &'static [&'static str] = &["Unescape source", "Unescape selection"];
 }
 
-impl CodeAction for Unescape {
+impl CodeAction for WithServer<'_, Unescape> {
   async fn code_action(&self, params: &CodeActionParams) -> Result<CodeActionResponse> {
-    Ok(vec![
-      CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
-        title: String::from(Self::COMMAND_DISPLAY_NAMES[0]),
+    let mut actions = vec![];
+    if params
+      .context
+      .only
+      .iter()
+      .flat_map(identity)
+      .any(|kind| kind == &CodeActionKind::SOURCE)
+    {
+      actions.push(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
+        title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
         kind: Some(CodeActionKind::SOURCE),
         command: Some(Command {
-          title: String::from(Self::COMMAND_DISPLAY_NAMES[0]),
-          command: String::from(Self::COMMAND_NAMES[0]),
+          title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
+          command: String::from(Unescape::COMMAND_NAMES[0]),
           arguments: Some(vec![to_value(&params.text_document.uri).map_err(
             |err| {
               format!("Failed to convert text document URI to JSON value: {err:?}")
@@ -40,13 +47,34 @@ impl CodeAction for Unescape {
           )?]),
         }),
         ..Default::default()
-      }),
-      CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
-        title: String::from(Self::COMMAND_DISPLAY_NAMES[1]),
+      }));
+    }
+    if params
+      .context
+      .only
+      .iter()
+      .flat_map(identity)
+      .any(|kind| kind == &CodeActionKind::QUICKFIX)
+      && self
+        .server()
+        .text()
+        .get_async(&params.text_document.uri)
+        .await
+        .as_deref()
+        .map(|rope| {
+          rope
+            .slice(rope.slice(..).range(params.range))
+            .chars()
+            .any(|c| c == '\\')
+        })
+        .unwrap_or_default()
+    {
+      actions.push(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
+        title: String::from(Unescape::COMMAND_DISPLAY_NAMES[1]),
         kind: Some(CodeActionKind::QUICKFIX),
         command: Some(Command {
-          title: String::from(Self::COMMAND_DISPLAY_NAMES[1]),
-          command: String::from(Self::COMMAND_NAMES[1]),
+          title: String::from(Unescape::COMMAND_DISPLAY_NAMES[1]),
+          command: String::from(Unescape::COMMAND_NAMES[1]),
           arguments: Some(vec![
             to_value(&params.text_document.uri).map_err(|err| {
               format!("Failed to convert text document URI to JSON value: {err:?}")
@@ -58,8 +86,9 @@ impl CodeAction for Unescape {
           ]),
         }),
         ..Default::default()
-      }),
-    ])
+      }));
+    }
+    Ok(actions)
   }
 }
 
