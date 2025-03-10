@@ -26,22 +26,6 @@ impl CommandMeta for Unescape {
 
 impl CodeAction for WithServer<'_, Unescape> {
   async fn code_action(&self, params: &CodeActionParams) -> Result<CodeActionResponse> {
-    let mut actions = vec![];
-    actions.push(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
-      title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
-      kind: Some(CodeActionKind::SOURCE),
-      command: Some(Command {
-        title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
-        command: String::from(Unescape::COMMAND_NAMES[0]),
-        arguments: Some(vec![to_value(&params.text_document.uri).map_err(
-          |err| {
-            format!("Failed to convert text document URI to JSON value: {err:?}")
-              .pipe(Error::invalid_params)
-          },
-        )?]),
-      }),
-      ..Default::default()
-    }));
     if (params.context.only.is_none()
       || params
         .context
@@ -63,26 +47,55 @@ impl CodeAction for WithServer<'_, Unescape> {
         })
         .unwrap_or_default()
     {
-      actions.push(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
-        title: String::from(Unescape::COMMAND_DISPLAY_NAMES[1]),
-        kind: Some(CodeActionKind::QUICKFIX),
-        command: Some(Command {
+      Ok(vec![CodeActionOrCommand::CodeAction(
+        lsp_types::CodeAction {
           title: String::from(Unescape::COMMAND_DISPLAY_NAMES[1]),
-          command: String::from(Unescape::COMMAND_NAMES[1]),
-          arguments: Some(vec![
-            to_value(&params.text_document.uri).map_err(|err| {
-              format!("Failed to convert text document URI to JSON value: {err:?}")
-                .pipe(Error::invalid_params)
-            })?,
-            to_value(&params.range).map_err(|err| {
-              format!("Failed to convert range to JSON value: {err:?}").pipe(Error::invalid_params)
-            })?,
-          ]),
-        }),
-        ..Default::default()
-      }));
+          kind: Some(CodeActionKind::QUICKFIX),
+          command: Some(Command {
+            title: String::from(Unescape::COMMAND_DISPLAY_NAMES[1]),
+            command: String::from(Unescape::COMMAND_NAMES[1]),
+            arguments: Some(vec![
+              to_value(&params.text_document.uri).map_err(|err| {
+                format!("Failed to convert text document URI to JSON value: {err:?}")
+                  .pipe(Error::invalid_params)
+              })?,
+              to_value(&params.range).map_err(|err| {
+                format!("Failed to convert range to JSON value: {err:?}")
+                  .pipe(Error::invalid_params)
+              })?,
+            ]),
+          }),
+          ..Default::default()
+        },
+      )])
+    } else if params.context.only.is_none()
+      || params
+        .context
+        .only
+        .iter()
+        .flat_map(identity)
+        .any(|kind| kind == &CodeActionKind::SOURCE)
+    {
+      Ok(vec![CodeActionOrCommand::CodeAction(
+        lsp_types::CodeAction {
+          title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
+          kind: Some(CodeActionKind::SOURCE),
+          command: Some(Command {
+            title: String::from(Unescape::COMMAND_DISPLAY_NAMES[0]),
+            command: String::from(Unescape::COMMAND_NAMES[0]),
+            arguments: Some(vec![to_value(&params.text_document.uri).map_err(
+              |err| {
+                format!("Failed to convert text document URI to JSON value: {err:?}")
+                  .pipe(Error::invalid_params)
+              },
+            )?]),
+          }),
+          ..Default::default()
+        },
+      )])
+    } else {
+      Ok(vec![])
     }
-    Ok(actions)
   }
 }
 
