@@ -10,4 +10,4 @@ pub struct WithServer<'a, T> {
   inner: T,
 }
 
-pub struct UnescapeSource;
+pub struct Unescape;

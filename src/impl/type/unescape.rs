@@ -1,6 +1,6 @@
 use crate::{
   r#trait::{CodeAction, CommandMeta, ExecuteCommand, Text},
-  r#type::{UnescapeSource, WithServer},
+  r#type::{Unescape, WithServer},
 };
 use futures_lite::FutureExt;
 use serde_json::{Value, from_value, to_value};
@@ -15,7 +15,7 @@ use tower_lsp::{
 };
 use unescape::unescape;
 
-impl CommandMeta for UnescapeSource {
+impl CommandMeta for Unescape {
   const COMMAND_NAMES: &'static [&'static str] = &[
     "text-language-server.source.unescape",
     "text-language-server.quickfix.unescape",
@@ -23,7 +23,7 @@ impl CommandMeta for UnescapeSource {
   const COMMAND_DISPLAY_NAMES: &'static [&'static str] = &["Unescape source", "Unescape selection"];
 }
 
-impl CodeAction for UnescapeSource {
+impl CodeAction for Unescape {
   async fn code_action(&self, params: &CodeActionParams) -> Result<CodeActionResponse> {
     Ok(vec![
       CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
@@ -63,7 +63,7 @@ impl CodeAction for UnescapeSource {
   }
 }
 
-impl ExecuteCommand for WithServer<'_, UnescapeSource> {
+impl ExecuteCommand for WithServer<'_, Unescape> {
   async fn execute_command(&self, params: &ExecuteCommandParams) -> Result<Option<Value>> {
     let Some(uri) = params
       .arguments
