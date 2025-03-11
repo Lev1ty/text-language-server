@@ -10,7 +10,7 @@ use tower_lsp::{
   jsonrpc::{Error, Result},
   lsp_types::{
     self, CodeActionKind, CodeActionOrCommand, CodeActionParams, CodeActionResponse, Command,
-    ExecuteCommandParams, Range, TextEdit, Url, WorkspaceEdit,
+    ExecuteCommandParams, Position, Range, TextEdit, Url, WorkspaceEdit,
   },
 };
 use tracing::error;
@@ -68,13 +68,14 @@ impl CodeAction for WithServer<'_, Unescape> {
           ..Default::default()
         },
       )])
-    } else if params.context.only.is_none()
+    } else if (params.context.only.is_none()
       || params
         .context
         .only
         .iter()
         .flat_map(identity)
-        .any(|kind| kind == &CodeActionKind::SOURCE)
+        .any(|kind| kind == &CodeActionKind::SOURCE))
+      && params.range.start == Position::default()
     {
       Ok(vec![CodeActionOrCommand::CodeAction(
         lsp_types::CodeAction {
