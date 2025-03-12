@@ -10,4 +10,7 @@ pub struct WithServer<'a, T> {
   inner: T,
 }
 
+pub struct Source<T>(pub T);
+
+pub struct EpochToUTC;
 pub struct Unescape;

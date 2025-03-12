@@ -1,6 +1,6 @@
 use crate::{
   r#trait::{CodeAction, CommandMeta, ExecuteCommand, Text, WithServer},
-  r#type::Unescape,
+  r#type::{EpochToUTC, Source, Unescape},
 };
 use bon::Builder;
 use getset::Getters;
@@ -8,6 +8,7 @@ use ropey::Rope;
 use scc::HashMap;
 use serde_json::Value;
 use std::{ops::Deref, process};
+use tap::prelude::*;
 use tower_lsp::{
   Client, LanguageServer,
   jsonrpc::Result,
@@ -44,10 +45,9 @@ impl LanguageServer for Server {
           ..Default::default()
         })),
         execute_command_provider: Some(ExecuteCommandOptions {
-          commands: Unescape::COMMAND_NAMES
-            .into_iter()
+          commands: [Unescape.command_name(), EpochToUTC.command_name()]
             .map(ToString::to_string)
-            .collect(),
+            .pipe(Vec::from_iter),
           ..Default::default()
         }),
         ..Default::default()
@@ -110,13 +110,29 @@ impl LanguageServer for Server {
 
   #[tracing::instrument(ret, err)]
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-    Ok(Some(Unescape.with_server(self).code_action(&params).await?))
+    Unescape
+      .with_server(self)
+      .code_action(&params)
+      .await?
+      .into_iter()
+      .chain(
+        Source(Unescape)
+          .with_server(self)
+          .code_action(&params)
+          .await?,
+      )
+      .chain(EpochToUTC.with_server(self).code_action(&params).await?)
+      .pipe(Vec::from_iter)
+      .pipe(Some)
+      .pipe(Ok)
   }
 
   #[tracing::instrument(ret, err)]
   async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
-    if Unescape::COMMAND_NAMES.contains(&params.command.as_str()) {
+    if Unescape.command_name() == params.command.as_str() {
       Unescape.with_server(self).execute_command(&params).await
+    } else if EpochToUTC.command_name() == params.command.as_str() {
+      EpochToUTC.with_server(self).execute_command(&params).await
     } else {
       Ok(None)
     }
