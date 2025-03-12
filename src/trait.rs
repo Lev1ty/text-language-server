@@ -31,7 +31,6 @@ pub trait Text {
 pub trait Transform {
   fn code_action_kind(&self) -> Vec<CodeActionKind>;
   fn code_action_condition(&self, source: RopeSlice, range: lsp_types::Range) -> bool;
-  fn code_action_definition(&self, params: &CodeActionParams) -> Result<CodeActionOrCommand>;
   fn transform(&self, text: RopeSlice) -> Option<String>;
 }
 

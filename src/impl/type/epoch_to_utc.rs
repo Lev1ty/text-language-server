@@ -4,12 +4,7 @@ use crate::{
 };
 use chrono::{DateTime, SecondsFormat, Utc};
 use ropey::RopeSlice;
-use serde_json::to_value;
-use tap::prelude::*;
-use tower_lsp::{
-  jsonrpc::{Error, Result},
-  lsp_types::{self, CodeActionKind, CodeActionOrCommand, CodeActionParams, Command, Range},
-};
+use tower_lsp::lsp_types::{CodeActionKind, Range};
 
 impl CommandMeta for EpochToUTC {
   fn command_name(&self) -> &'static str {
@@ -32,26 +27,6 @@ impl Transform for EpochToUTC {
       .to_string()
       .parse::<i64>()
       .is_ok()
-  }
-
-  fn code_action_definition(&self, params: &CodeActionParams) -> Result<CodeActionOrCommand> {
-    Ok(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
-      title: String::from(self.command_name()),
-      command: Some(Command {
-        title: String::from(self.command_display_name()),
-        command: String::from(self.command_name()),
-        arguments: Some(vec![
-          to_value(&params.text_document.uri).map_err(|err| {
-            format!("Failed to convert text document URI to JSON value: {err:?}")
-              .pipe(Error::invalid_params)
-          })?,
-          to_value(&params.range).map_err(|err| {
-            format!("Failed to convert range to JSON value: {err:?}").pipe(Error::invalid_params)
-          })?,
-        ]),
-      }),
-      ..Default::default()
-    }))
   }
 
   fn transform(&self, text: RopeSlice) -> Option<String> {

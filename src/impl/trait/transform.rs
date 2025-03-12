@@ -1,21 +1,21 @@
 use crate::{
-  r#trait::{CodeAction, ExecuteCommand, Text, Transform},
+  r#trait::{CodeAction, CommandMeta, ExecuteCommand, Text, Transform},
   r#type::WithServer,
 };
 use futures_lite::FutureExt;
-use serde_json::{Value, from_value};
+use serde_json::{Value, from_value, to_value};
 use std::{collections::HashMap, convert::identity};
 use tap::prelude::*;
 use tower_lsp::{
   jsonrpc::{Error, Result},
   lsp_types::{
-    CodeActionOrCommand, CodeActionParams, ExecuteCommandParams, Range, TextEdit, Url,
-    WorkspaceEdit,
+    self, CodeActionOrCommand, CodeActionParams, Command, ExecuteCommandParams, Range, TextEdit,
+    Url, WorkspaceEdit,
   },
 };
 use tracing::error;
 
-impl<T: Transform> CodeAction for WithServer<'_, T> {
+impl<T: CommandMeta + Transform> CodeAction for WithServer<'_, T> {
   async fn code_action(&self, params: &CodeActionParams) -> Result<Vec<CodeActionOrCommand>> {
     ((params.context.only.is_none()
       || params
@@ -32,7 +32,25 @@ impl<T: Transform> CodeAction for WithServer<'_, T> {
         .as_deref()
         .map(|rope| self.code_action_condition(rope.slice(..), params.range))
         .unwrap_or_default())
-    .then(|| self.code_action_definition(params))
+    .then(|| {
+      Ok(CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
+        title: String::from(self.command_name()),
+        command: Some(Command {
+          title: String::from(self.command_display_name()),
+          command: String::from(self.command_name()),
+          arguments: Some(vec![
+            to_value(&params.text_document.uri).map_err(|err| {
+              format!("Failed to convert text document URI to JSON value: {err:?}")
+                .pipe(Error::invalid_params)
+            })?,
+            to_value(&params.range).map_err(|err| {
+              format!("Failed to convert range to JSON value: {err:?}").pipe(Error::invalid_params)
+            })?,
+          ]),
+        }),
+        ..Default::default()
+      }))
+    })
     .transpose()?
     .pipe(Vec::from_iter)
     .pipe(Ok)
