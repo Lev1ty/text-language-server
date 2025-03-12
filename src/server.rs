@@ -45,9 +45,12 @@ impl LanguageServer for Server {
           ..Default::default()
         })),
         execute_command_provider: Some(ExecuteCommandOptions {
-          commands: [Unescape.command_name(), EpochToUTC.command_name()]
-            .map(ToString::to_string)
-            .pipe(Vec::from_iter),
+          commands: [
+            Unescape.command_display_name(),
+            EpochToUTC.command_display_name(),
+          ]
+          .map(ToString::to_string)
+          .pipe(Vec::from_iter),
           ..Default::default()
         }),
         ..Default::default()
