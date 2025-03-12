@@ -22,10 +22,9 @@ use tower_lsp::{
 };
 
 #[derive(Debug, Builder, Getters)]
+#[getset(get = "pub")]
 pub struct Server {
-  #[getset(get = "pub")]
   client: Client,
-  #[getset(get = "pub")]
   #[builder(default)]
   text: HashMap<Url, Rope>,
 }
