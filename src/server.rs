@@ -108,19 +108,13 @@ impl LanguageServer for Server {
     self.text.remove_async(&params.text_document.uri).await;
   }
 
+  #[rustfmt::skip]
   #[tracing::instrument(ret, err)]
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-    Unescape
-      .with_server(self)
-      .code_action(&params)
-      .await?
+    Vec::new()
       .into_iter()
-      .chain(
-        Source(Unescape)
-          .with_server(self)
-          .code_action(&params)
-          .await?,
-      )
+      .chain(Unescape.with_server(self).code_action(&params).await?)
+      .chain(Source(Unescape).with_server(self).code_action(&params).await?)
       .chain(EpochToUTC.with_server(self).code_action(&params).await?)
       .pipe(Vec::from_iter)
       .pipe(Some)
